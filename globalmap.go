@@ -3,12 +3,27 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"go.etcd.io/etcd/clientv3"
 	"go.etcd.io/etcd/clientv3/concurrency"
 )
 
-func GetGlobalMap(cli *clientv3.Client, key string, resetLock *concurrency.Mutex) (value string, err error) {
+func GetGlobalMap(key string) (value string, err error) {
+	cli, err := clientv3.New(clientv3.Config{Endpoints: []string{"localhost:2379"}})
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer cli.Close()
+
+	sReset, err := concurrency.NewSession(cli, concurrency.WithTTL(10))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer sReset.Close()
+	// ctxReset := context.Background()
+	resetLock := concurrency.NewMutex(sReset, PrefixLock)
+
 	// reseting
 	if len(resetLock.IsOwner().Key) > 1 {
 		return "", RefusedByLockError
@@ -65,7 +80,21 @@ func GetGlobalMap(cli *clientv3.Client, key string, resetLock *concurrency.Mutex
 	return string(getResp.Kvs[0].Value), nil
 }
 
-func UpdateGlobalMap(cli *clientv3.Client, key, value string, resetLock *concurrency.Mutex) (err error) {
+func UpdateGlobalMap(key, value string) (err error) {
+	cli, err := clientv3.New(clientv3.Config{Endpoints: []string{"localhost:2379"}})
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer cli.Close()
+
+	sReset, err := concurrency.NewSession(cli, concurrency.WithTTL(10))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer sReset.Close()
+	// ctxReset := context.Background()
+	resetLock := concurrency.NewMutex(sReset, PrefixLock)
+
 	// reseting
 	if len(resetLock.IsOwner().Key) > 1 {
 		return RefusedByLockError
@@ -123,7 +152,21 @@ func UpdateGlobalMap(cli *clientv3.Client, key, value string, resetLock *concurr
 	return nil
 }
 
-func DeleteGlobalMap(cli *clientv3.Client, key string, resetLock *concurrency.Mutex) (err error) {
+func DeleteGlobalMap(key string) (err error) {
+	cli, err := clientv3.New(clientv3.Config{Endpoints: []string{"localhost:2379"}})
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer cli.Close()
+
+	sReset, err := concurrency.NewSession(cli, concurrency.WithTTL(10))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer sReset.Close()
+	// ctxReset := context.Background()
+	resetLock := concurrency.NewMutex(sReset, PrefixLock)
+
 	// reseting
 	if len(resetLock.IsOwner().Key) > 1 {
 		return RefusedByLockError
@@ -179,9 +222,23 @@ func DeleteGlobalMap(cli *clientv3.Client, key string, resetLock *concurrency.Mu
 	return nil
 }
 
-func ResetGlobalMap(cli *clientv3.Client, prefixKeyLock, prefixKey string, ctx context.Context, resetLock *concurrency.Mutex) (err error) {
+func ResetGlobalMap(prefixKeyLock, prefixKey string) (err error) {
+	cli, err := clientv3.New(clientv3.Config{Endpoints: []string{"localhost:2379"}})
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer cli.Close()
+
+	sReset, err := concurrency.NewSession(cli, concurrency.WithTTL(10))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer sReset.Close()
+	ctxReset := context.Background()
+	resetLock := concurrency.NewMutex(sReset, PrefixLock)
+
 	// acquire lock (or wait to have it)
-	if err := resetLock.Lock(ctx); err != nil {
+	if err := resetLock.Lock(ctxReset); err != nil {
 		return err
 	}
 
@@ -198,7 +255,7 @@ func ResetGlobalMap(cli *clientv3.Client, prefixKeyLock, prefixKey string, ctx c
 		}
 	}
 
-	if err := resetLock.Unlock(ctx); err != nil {
+	if err := resetLock.Unlock(ctxReset); err != nil {
 		return err
 	}
 
