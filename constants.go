@@ -1,6 +1,10 @@
 package main
 
-import "errors"
+import (
+	"errors"
+
+	"go.etcd.io/etcd/clientv3/concurrency"
+)
 
 var RefusedByLockError = errors.New("refused by lock")
 
@@ -9,3 +13,5 @@ var (
 	PrefixKey  = "/globalmap/"
 	PrefixLock = "/lock/"
 )
+
+var resetLock = &concurrency.Mutex{}

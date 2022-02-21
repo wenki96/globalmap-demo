@@ -16,14 +16,6 @@ func GetGlobalMap(key string) (value string, err error) {
 	}
 	defer cli.Close()
 
-	sReset, err := concurrency.NewSession(cli, concurrency.WithTTL(10))
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer sReset.Close()
-	// ctxReset := context.Background()
-	resetLock := concurrency.NewMutex(sReset, PrefixLock)
-
 	// reseting
 	if len(resetLock.IsOwner().Key) > 1 {
 		return "", RefusedByLockError
@@ -86,14 +78,6 @@ func UpdateGlobalMap(key, value string) (err error) {
 		log.Fatal(err)
 	}
 	defer cli.Close()
-
-	sReset, err := concurrency.NewSession(cli, concurrency.WithTTL(10))
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer sReset.Close()
-	// ctxReset := context.Background()
-	resetLock := concurrency.NewMutex(sReset, PrefixLock)
 
 	// reseting
 	if len(resetLock.IsOwner().Key) > 1 {
@@ -158,14 +142,6 @@ func DeleteGlobalMap(key string) (err error) {
 		log.Fatal(err)
 	}
 	defer cli.Close()
-
-	sReset, err := concurrency.NewSession(cli, concurrency.WithTTL(10))
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer sReset.Close()
-	// ctxReset := context.Background()
-	resetLock := concurrency.NewMutex(sReset, PrefixLock)
 
 	// reseting
 	if len(resetLock.IsOwner().Key) > 1 {
