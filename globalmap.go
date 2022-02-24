@@ -4,10 +4,33 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"go.etcd.io/etcd/clientv3"
 	"go.etcd.io/etcd/clientv3/concurrency"
 )
+
+func resetKeyUsed(cli *clientv3.Client) bool {
+	var getResp *clientv3.GetResponse
+	// 实例化一个用于操作ETCD的KV
+	kv := clientv3.NewKV(cli)
+
+	getResp, err := kv.Get(context.TODO(), PrefixLock)
+	if err != nil {
+		fmt.Println(err)
+		return true
+	}
+
+	// 输出本次的Revision
+	if getResp.Kvs != nil {
+		// fmt.Println(getResp.Kvs[0].Value)
+		return string(getResp.Kvs[0].Value) == "1"
+	}
+
+	return false
+}
 
 func GetGlobalMap(key string) (value string, err error) {
 	cli, err := clientv3.New(clientv3.Config{Endpoints: []string{"localhost:2379"}})
@@ -17,7 +40,7 @@ func GetGlobalMap(key string) (value string, err error) {
 	defer cli.Close()
 
 	// reseting
-	if len(resetLock.IsOwner().Key) > 1 {
+	if resetKeyUsed(cli) {
 		return "", RefusedByLockError
 	}
 
@@ -39,7 +62,7 @@ func GetGlobalMap(key string) (value string, err error) {
 	}
 
 	// reseting
-	if len(resetLock.IsOwner().Key) > 1 {
+	if resetKeyUsed(cli) {
 		if err := l.Unlock(ctx); err != nil {
 			return "", err
 		}
@@ -80,7 +103,7 @@ func UpdateGlobalMap(key, value string) (err error) {
 	defer cli.Close()
 
 	// reseting
-	if len(resetLock.IsOwner().Key) > 1 {
+	if resetKeyUsed(cli) {
 		return RefusedByLockError
 	}
 
@@ -102,7 +125,7 @@ func UpdateGlobalMap(key, value string) (err error) {
 	}
 
 	// reseting
-	if len(resetLock.IsOwner().Key) > 1 {
+	if resetKeyUsed(cli) {
 		if err := l.Unlock(ctx); err != nil {
 			return err
 		}
@@ -144,7 +167,7 @@ func DeleteGlobalMap(key string) (err error) {
 	defer cli.Close()
 
 	// reseting
-	if len(resetLock.IsOwner().Key) > 1 {
+	if resetKeyUsed(cli) {
 		return RefusedByLockError
 	}
 
@@ -166,7 +189,7 @@ func DeleteGlobalMap(key string) (err error) {
 	}
 
 	// reseting
-	if len(resetLock.IsOwner().Key) > 1 {
+	if resetKeyUsed(cli) {
 		if err := l.Unlock(ctx); err != nil {
 			return err
 		}
@@ -198,6 +221,38 @@ func DeleteGlobalMap(key string) (err error) {
 	return nil
 }
 
+func setResetKey(cli *clientv3.Client, key string) {
+	kv := clientv3.NewKV(cli)
+	if _, err := kv.Put(context.TODO(), PrefixKey, key, clientv3.WithPrevKV()); err != nil {
+		fmt.Println(err)
+		return
+	}
+}
+
+func gracefulShutdown() {
+	c := make(chan os.Signal)
+	// 监听信号
+	signal.Notify(c, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+	go func() {
+		cli, err := clientv3.New(clientv3.Config{Endpoints: []string{"localhost:2379"}})
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer cli.Close()
+
+		for s := range c {
+			switch s {
+			case syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM:
+				fmt.Println("退出:", s)
+				setResetKey(cli, "0")
+				os.Exit(0)
+			default:
+				fmt.Println("其他信号:", s)
+			}
+		}
+	}()
+}
+
 func ResetGlobalMap(prefixKeyLock, prefixKey string) (err error) {
 	cli, err := clientv3.New(clientv3.Config{Endpoints: []string{"localhost:2379"}})
 	if err != nil {
@@ -205,18 +260,8 @@ func ResetGlobalMap(prefixKeyLock, prefixKey string) (err error) {
 	}
 	defer cli.Close()
 
-	sReset, err := concurrency.NewSession(cli, concurrency.WithTTL(10))
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer sReset.Close()
-	ctxReset := context.Background()
-	resetLock := concurrency.NewMutex(sReset, PrefixLock)
-
 	// acquire lock (or wait to have it)
-	if err := resetLock.Lock(ctxReset); err != nil {
-		return err
-	}
+	setResetKey(cli, "1")
 
 	fmt.Println("[Reset] acquired lock for reset ", prefixKeyLock)
 
@@ -231,9 +276,7 @@ func ResetGlobalMap(prefixKeyLock, prefixKey string) (err error) {
 		}
 	}
 
-	if err := resetLock.Unlock(ctxReset); err != nil {
-		return err
-	}
+	setResetKey(cli, "0")
 
 	fmt.Println("[Reset] released lock for reset ", prefixKeyLock)
 	fmt.Println()
